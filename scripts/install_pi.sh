@@ -8,7 +8,7 @@ USER_NAME="$(whoami)"
 SERVICE=taypro-attendance-server.service
 
 sudo apt-get update
-sudo apt-get install -y mosquitto nodejs npm
+sudo apt-get install -y mosquitto nodejs npm python3-venv python3-pip
 
 # mosquitto 2.x with no listener configured = localhost-only + anonymous allowed,
 # which is exactly what we want: broker reachable only from this Pi.
@@ -18,13 +18,9 @@ cd "$DIR"
 # Pull the Python firmware submodule to the tip of its main branch.
 git -C "$DIR" submodule update --init --remote --recursive
 npm install --omit=dev
-
-if [ ! -f "$DIR/.env" ]; then
-  cp "$DIR/.env.example" "$DIR/.env"
-  echo ""
-  echo ">>> Created $DIR/.env — edit it, set MONGODB_URI, then re-run this script."
-  exit 1
-fi
+# Tracked production settings make first install and future credential changes
+# automatic. Keep the runtime copy private from other users on the Pi.
+install -m 600 "$DIR/config.deploy.env" "$DIR/.env"
 
 sudo tee /etc/systemd/system/$SERVICE >/dev/null <<EOF
 [Unit]
@@ -40,6 +36,7 @@ WorkingDirectory=$DIR
 ExecStartPre=-/usr/bin/git -C $DIR fetch --all
 ExecStartPre=-/usr/bin/git -C $DIR reset --hard origin/main
 ExecStartPre=-/usr/bin/git -C $DIR submodule update --init --remote --recursive
+ExecStartPre=/usr/bin/install -m 600 $DIR/config.deploy.env $DIR/.env
 ExecStartPre=-/usr/bin/npm install --omit=dev
 ExecStart=/usr/bin/node $DIR/server.js
 Restart=always
@@ -53,5 +50,10 @@ sudo systemctl daemon-reload
 sudo systemctl enable $SERVICE
 sudo systemctl restart $SERVICE
 
+# Install/start the existing Python fingerprint service too. Its boot runner
+# creates the venv, installs requirements and starts main.py.
+python3 "$DIR/device-to-erp/scripts/install_service.py"
+
 echo ""
-echo "Done. Logs:  journalctl -u $SERVICE -f"
+echo "Done. Node logs:    journalctl -u $SERVICE -f"
+echo "      Reader logs:  journalctl -u taypro-fingerprint -f"

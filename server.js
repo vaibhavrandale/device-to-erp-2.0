@@ -10,7 +10,7 @@ const MQTT_URL = process.env.MQTT_URL || "mqtt://127.0.0.1:1883";
 const TOPIC_UP = "hr/attendance/up";
 
 if (!MONGODB_URI) {
-  console.error("MONGODB_URI is not set — create .env (see .env.example)");
+  console.error("MONGODB_URI is not set — deployment config was not installed");
   process.exit(1);
 }
 

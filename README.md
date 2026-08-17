@@ -57,22 +57,16 @@ one Pi reboot picks up the latest of both.
 ```bash
 git clone --recurse-submodules <this repo> ~/device-to-erp-2.0
 cd ~/device-to-erp-2.0
-bash scripts/install_pi.sh        # creates .env on first run
-nano .env                         # set MONGODB_URI
-bash scripts/install_pi.sh        # installs + starts the service
+bash scripts/install_pi.sh
 ```
 
 On every restart the service does `git reset --hard origin/main`,
 `git submodule update --init --remote --recursive` (latest firmware) and
 `npm install`, so **laptop `git push` → Pi `sudo reboot` = updated** for
-both node and python. (`.env` is gitignored and survives.)
-
-To also run the fingerprint firmware itself on boot, install its own
-service once from the submodule (unchanged from the standalone repo):
-
-```bash
-python3 device-to-erp/scripts/install_service.py
-```
+both node and python. The installer copies the tracked production settings
+from `config.deploy.env` into the private runtime `.env`, then installs and
+starts both `taypro-attendance-server` and `taypro-fingerprint`. No manual
+configuration or second install command is required.
 
 ## Point the firmware at the local broker
 
@@ -88,7 +82,8 @@ In the submodule's `device-to-erp/config.json` (or `config.deploy.json`):
 }
 ```
 
-Firmware install/boot (`install_service.py`, `boot_run.py`) is unchanged.
+The combined installer invokes the firmware's existing `install_service.py`
+automatically.
 
 ## Notes
 
