@@ -55,7 +55,7 @@ one Pi reboot picks up the latest of both.
 ## Install on the Pi
 
 ```bash
-git clone --recurse-submodules <this repo> ~/device-to-erp-2.0
+git clone --recurse-submodules https://github.com/vaibhavrandale/device-to-erp-2.0.git ~/device-to-erp-2.0
 cd ~/device-to-erp-2.0
 bash scripts/install_pi.sh
 ```
@@ -99,6 +99,38 @@ automatically.
   configured), so nothing off the Pi can reach it. If you ever need other
   devices on the LAN to publish, add a listener + password file in
   `/etc/mosquitto/conf.d/` — do not just open an anonymous listener.
+
+## Stop old services (before first install)
+
+```bash
+sudo systemctl stop taypro-fingerprint
+sudo systemctl disable taypro-fingerprint
+pkill -f "python3.*main.py" || true
+pkill -f "boot_run.py" || true
+```
+
+## Logs (copy-paste on Pi)
+
+```bash
+# Node attendance server (MQTT → MongoDB) — live
+journalctl -u taypro-attendance-server -f
+
+# Python fingerprint reader — live
+journalctl -u taypro-fingerprint -f
+
+# Last 100 lines (no follow)
+journalctl -u taypro-attendance-server -n 100 --no-pager
+journalctl -u taypro-fingerprint -n 100 --no-pager
+
+# Service status
+systemctl status taypro-attendance-server --no-pager
+systemctl status taypro-fingerprint --no-pager
+
+# Firmware boot log file
+tail -f ~/device-to-erp-2.0/device-to-erp/data/boot_run.log
+```
+
+Open two SSH windows to watch both live logs at once.
 
 ## Quick test without the sensor
 
