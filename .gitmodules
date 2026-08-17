@@ -1,0 +1,4 @@
+[submodule "device-to-erp"]
+	path = device-to-erp
+	url = https://github.com/vaibhavrandale/device-to-erp.git
+	branch = main

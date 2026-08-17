@@ -1,0 +1,16 @@
+{
+  "name": "device-to-erp-2.0",
+  "version": "1.0.0",
+  "description": "Pi-local attendance server: local MQTT broker + Node service that inserts attendance punches into MongoDB",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "selfcheck": "node selfcheck.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "mongoose": "^8.6.0",
+    "mqtt": "^5.10.1"
+  }
+}
