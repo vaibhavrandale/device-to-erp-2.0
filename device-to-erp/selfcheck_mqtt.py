@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+"""Self-check for local MQTT config + broker host normalization.
+
+Run: python selfcheck_mqtt.py
+Asserts config parsing/auth wiring, then attempts a real connect (best-effort).
+"""
+from __future__ import annotations
+
+import sys
+
+from taypro.config import DEFAULTS, load_config, normalize_broker
+from taypro.mqtt_client import AttendanceMqtt
+from taypro.storage import DeviceStorage
+
+
+def check_normalization() -> None:
+    # env-style paste: scheme + host + port must split cleanly
+    got = normalize_broker({"mqtt_host": "mqtt://127.0.0.1:1883"})
+    assert got["mqtt_host"] == "127.0.0.1", got["mqtt_host"]
+    assert got["mqtt_port"] == 1883, got["mqtt_port"]
+    # bare host with no port keeps default port
+    got2 = normalize_broker({"mqtt_host": "broker.example", "mqtt_port": 1883})
+    assert got2["mqtt_host"] == "broker.example" and got2["mqtt_port"] == 1883
+    # mqtts scheme flags tls
+    got3 = normalize_broker({"mqtt_host": "mqtts://h:8883"})
+    assert got3["mqtt_port"] == 8883 and got3.get("mqtt_tls") is True
+    # Amazon MQ endpoint form: mqtt+ssl scheme must flag tls
+    aws = normalize_broker(
+        {"mqtt_host": "mqtt+ssl://b-abc-1.mq.ap-south-1.amazonaws.com:8883"}
+    )
+    assert aws["mqtt_host"] == "b-abc-1.mq.ap-south-1.amazonaws.com", aws["mqtt_host"]
+    assert aws["mqtt_port"] == 8883 and aws["mqtt_tls"] is True
+    # TLS without an explicit port must not sit on the plaintext 1883 default
+    assert normalize_broker({"mqtt_host": "mqtts://h", "mqtt_port": 1883})["mqtt_port"] == 8883
+    print("[ok] broker normalization (incl. Amazon MQ mqtt+ssl)")
+
+
+def check_local_config() -> None:
+    cfg = load_config()
+    assert cfg["mqtt_host"] == "127.0.0.1", cfg["mqtt_host"]
+    assert cfg["mqtt_username"] == "", cfg["mqtt_username"]
+    assert cfg["mqtt_password"] == "", "local broker must not use old credentials"
+    storage = DeviceStorage(defaults=cfg)
+    client = AttendanceMqtt(
+        host=cfg["mqtt_host"],
+        port=int(cfg["mqtt_port"]),
+        topic_up=cfg["topic_up"],
+        topic_down_prefix=cfg["topic_down_hw_prefix"],
+        storage=storage,
+        username=cfg["mqtt_username"],
+        password=cfg["mqtt_password"],
+        tls=bool(cfg.get("mqtt_tls")),
+    )
+    # Localhost-only Mosquitto uses no credentials.
+    uname = getattr(client.client, "_username", None)
+    assert uname is None, uname
+    print("[ok] local broker configured without credentials")
+
+    # tls=True must actually arm TLS on the socket, not just set a config flag
+    tls_client = AttendanceMqtt(
+        host="b-abc-1.mq.ap-south-1.amazonaws.com",
+        port=8883,
+        topic_up=cfg["topic_up"],
+        topic_down_prefix=cfg["topic_down_hw_prefix"],
+        storage=storage,
+        tls=True,
+    )
+    assert getattr(tls_client.client, "_ssl_context", None) is not None, "TLS not armed"
+    print("[ok] mqtt_tls arms TLS on the paho client")
+    return cfg, storage
+
+
+def try_connect(cfg, storage) -> None:
+    client = AttendanceMqtt(
+        host=cfg["mqtt_host"],
+        port=int(cfg["mqtt_port"]),
+        topic_up=cfg["topic_up"],
+        topic_down_prefix=cfg["topic_down_hw_prefix"],
+        storage=storage,
+        username=cfg["mqtt_username"],
+        password=cfg["mqtt_password"],
+    )
+    print(f"[..] connecting to {cfg['mqtt_host']}:{cfg['mqtt_port']} ...")
+    ok = client.connect(timeout_s=8)
+    client.disconnect()
+    if ok:
+        print("[ok] local broker connected")
+    else:
+        print("[warn] connect failed (expected when Mosquitto is not running locally)")
+
+
+if __name__ == "__main__":
+    assert "mqtt_username" in DEFAULTS and "mqtt_password" in DEFAULTS
+    check_normalization()
+    cfg, storage = check_local_config()
+    try:
+        try_connect(cfg, storage)
+    except Exception as exc:  # network is best-effort in this check
+        print(f"[warn] connect raised: {exc}")
+    print("SELF-CHECK PASSED (assertions ok)")
+    sys.exit(0)

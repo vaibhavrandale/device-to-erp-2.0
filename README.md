@@ -21,25 +21,21 @@ register / heartbeat / tap only. Sockets, device logs, remote enroll,
 reports and frappe transfer are intentionally not included — this service
 does one thing: **insert attendance punches into the DB**.
 
-## One repo, both codebases (git submodule)
+## One repo, both codebases
 
-The Python firmware lives in its own repo
-(`github.com/vaibhavrandale/device-to-erp`) and is pulled in here as a git
-**submodule** at `./device-to-erp`. So a single clone/pull of this repo
-fetches **node + python together**:
+The complete Python firmware is tracked directly in this repository under
+`./device-to-erp`. It is not a submodule, so a normal clone or pull fetches
+**node + python together**:
 
 ```
 device-to-erp-2.0/          (this repo — node)
   server.js  attendance.js  models.js  ...
-  device-to-erp/            (submodule — python firmware, tracks its main)
+  device-to-erp/            (python fingerprint firmware)
     main.py  taypro/  enroll.py  ...
 ```
 
-Clone with `--recurse-submodules`; the install script and the systemd unit
-both run `git submodule update --init --remote --recursive`, which advances
-the submodule to the **tip of the firmware's `main`** on every boot. Edit
-the firmware in its own repo and push there; edit node here and push here —
-one Pi reboot picks up the latest of both.
+All future Node and Python changes are committed and pushed to this 2.0 repo.
+One Pi reboot picks up the latest of both.
 
 ## Files
 
@@ -50,27 +46,47 @@ one Pi reboot picks up the latest of both.
 | `models.js` | `AttendanceDevice`, `AttendancePunch`, `HRUser` schemas (copied) |
 | `scripts/install_pi.sh` | one-time Pi setup: mosquitto + systemd service |
 | `selfcheck.js` | assert-based check of the pure logic (`npm run selfcheck`) |
-| `device-to-erp/` | git submodule — the Python fingerprint firmware |
+| `device-to-erp/` | Python fingerprint firmware, tracked in this repo |
 
 ## Install on the Pi
 
 ```bash
-git clone --recurse-submodules https://github.com/vaibhavrandale/device-to-erp-2.0.git ~/device-to-erp-2.0
+git clone https://github.com/vaibhavrandale/device-to-erp-2.0.git ~/device-to-erp-2.0
 cd ~/device-to-erp-2.0
 bash scripts/install_pi.sh
 ```
 
-On every restart the service does `git reset --hard origin/main`,
-`git submodule update --init --remote --recursive` (latest firmware) and
-`npm install`, so **laptop `git push` → Pi `sudo reboot` = updated** for
-both node and python. The installer copies the tracked production settings
+On every restart the service does `git reset --hard origin/main` and
+`npm install`, so **laptop `git push` → Pi `sudo reboot` = updated** for both
+node and python. The installer copies the tracked production settings
 from `config.deploy.env` into the private runtime `.env`, then installs and
 starts both `taypro-attendance-server` and `taypro-fingerprint`. No manual
 configuration or second install command is required.
 
+## Migrate a Pi that has the old standalone code
+
+Stop the old reader and keep its folder as a backup, then clone this combined
+repository:
+
+```bash
+sudo systemctl stop taypro-fingerprint
+sudo systemctl disable taypro-fingerprint
+pkill -f "python3.*main.py" || true
+pkill -f "boot_run.py" || true
+
+cd ~
+[ ! -d device-to-erp ] || mv device-to-erp device-to-erp-old
+[ ! -d device-to-erp-2.0 ] || mv device-to-erp-2.0 device-to-erp-2.0-old
+git clone https://github.com/vaibhavrandale/device-to-erp-2.0.git
+cd device-to-erp-2.0
+bash scripts/install_pi.sh
+```
+
+After verifying both services, the `*-old` backup folders can be deleted.
+
 ## Point the firmware at the local broker
 
-In the submodule's `device-to-erp/config.json` (or `config.deploy.json`):
+In `device-to-erp/config.json` (or `config.deploy.json`):
 
 ```json
 {

@@ -15,8 +15,6 @@ sudo apt-get install -y mosquitto nodejs npm python3-venv python3-pip
 sudo systemctl enable --now mosquitto
 
 cd "$DIR"
-# Pull the Python firmware submodule to the tip of its main branch.
-git -C "$DIR" submodule update --init --remote --recursive
 npm install --omit=dev
 # Tracked production settings make first install and future credential changes
 # automatic. Keep the runtime copy private from other users on the Pi.
@@ -32,10 +30,9 @@ Wants=network-online.target
 Type=simple
 User=$USER_NAME
 WorkingDirectory=$DIR
-# reboot = pull latest node code AND latest python firmware (submodule) in one go
+# reboot = pull latest node AND python firmware from this single repo
 ExecStartPre=-/usr/bin/git -C $DIR fetch --all
 ExecStartPre=-/usr/bin/git -C $DIR reset --hard origin/main
-ExecStartPre=-/usr/bin/git -C $DIR submodule update --init --remote --recursive
 ExecStartPre=/usr/bin/install -m 600 $DIR/config.deploy.env $DIR/.env
 ExecStartPre=-/usr/bin/npm install --omit=dev
 ExecStart=/usr/bin/node $DIR/server.js
