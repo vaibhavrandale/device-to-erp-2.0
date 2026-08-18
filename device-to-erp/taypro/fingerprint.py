@@ -25,10 +25,28 @@ CMD_READ_SYS = 0x0F
 CMD_HISPEED_SEARCH = 0x1B
 CMD_PASSWORD = 0x13
 CMD_TEMPLATE_COUNT = 0x1D
+CMD_READ_INDEX = 0x1F
 
 
 class FingerprintError(RuntimeError):
     pass
+
+
+def decode_index_table(tables) -> set[int]:
+    """Occupied page numbers from ReadIndexTable bitmaps.
+
+    One 32-byte table covers 256 pages; bit i of byte b is page b*8 + i.
+    """
+    occupied: set[int] = set()
+    for group, table in enumerate(tables):
+        base = group * 256
+        for byte_i, bits in enumerate(table):
+            if not bits:
+                continue
+            for bit in range(8):
+                if bits >> bit & 1:
+                    occupied.add(base + byte_i * 8 + bit)
+    return occupied
 
 
 POWER_HINT = """
@@ -177,6 +195,13 @@ class R307:
         if payload[0] != OK or len(payload) < 3:
             raise FingerprintError("R307 template count failed")
         return (payload[1] << 8) | payload[2]
+
+    def read_index_table(self, group: int = 0) -> bytes:
+        """32-byte occupancy bitmap for pages group*256 .. group*256+255."""
+        payload = self._command(CMD_READ_INDEX, bytes([group & 0xFF]))
+        if payload[0] != OK or len(payload) < 33:
+            raise FingerprintError("R307 read index table failed")
+        return payload[1:33]
 
     def get_image(self) -> int:
         return self._command(CMD_GET_IMAGE)[0]

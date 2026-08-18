@@ -303,17 +303,21 @@ class OledDisplay:
             self._centered(draw, "Finger ignored", 50)
 
     def show_enroll_ids(self, finger1: str = "", finger2: str = "") -> None:
-        """Hold the enrolled ids on screen so the operator can copy them into HR."""
+        """Hold the captured ids on screen so the operator can copy them into HR."""
         if not self.ready:
             return
         self._mark_temp(self.enroll_ids_screen_s)
+        pending2 = bool(finger1) and not finger2
         with self._canvas() as draw:
             self._centered(draw, "NOTE THESE IDS", 0)
             draw.line((0, 10, self.width - 1, 10), fill=1)
             self._centered(draw, f"F1  {finger1 or '-'}", 15, self._font_lg)
             self._centered(draw, f"F2  {finger2 or '-'}", 33, self._font_lg)
             draw.line((0, 50, self.width - 1, 50), fill=1)
-            self._centered(draw, "Enter in HR form", 53)
+            # Pairing is time-boxed, so say so rather than let them wander off.
+            self._centered(
+                draw, "2nd finger now" if pending2 else "Enter in HR form", 53
+            )
 
     def show_enroll(self, finger: int, name: str, step: str) -> None:
         """Live enroll coach for remote OLED (no monitor)."""

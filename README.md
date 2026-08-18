@@ -63,26 +63,17 @@ from `config.deploy.env` into the private runtime `.env`, then installs and
 starts both `taypro-attendance-server` and `taypro-fingerprint`. No manual
 configuration or second install command is required.
 
-## Enroll an employee (register at the Pi, type ids into HR)
+## Enroll an employee (capture at the sensor, type ids into HR)
 
-The HR dashboard sits on another network and the broker here is
-loopback-only, so the dashboard cannot start an enroll. Register the fingers
-at the Pi first, read the two template ids off the OLED, then type them into
-the HR form.
+The HR dashboard sits on another network and this broker is loopback-only, so
+the dashboard cannot start an enroll. Nothing needs to be run on the Pi
+either — **an unrecognised finger is the capture request.**
 
-On the Pi:
-
-```bash
-cd ~/device-to-erp-2.0/device-to-erp
-.venv/bin/python enroll_now.py
-```
-
-That enrols finger 1 then finger 2 — place each finger twice when the OLED
-says PLACE. The reader service keeps the sensor open, so this asks it over
-the local broker rather than grabbing `/dev/ttyUSB0`.
-
-Both ids print in the terminal and stay on the OLED for 60 seconds
-(`enroll_ids_screen_s` in `device-to-erp/config.deploy.json`):
+1. New employee places a finger. The sensor does not recognise it, so the OLED
+   asks for it a second time (two scans make a usable template).
+2. The id appears on screen. Place the **second** finger straight away and it
+   is captured as F2.
+3. Both ids stay on screen for 60 seconds:
 
 ```
 NOTE THESE IDS
@@ -91,12 +82,45 @@ F2  FP0008
 Enter in HR form
 ```
 
-Put `FP0007` / `FP0008` into the employee's card fields in HR and save. From
-then on a scan publishes `hr/attendance/up` `a:tap` with `c=FP0007`, and the
-node service inserts the punch.
+4. Write them down, then type `FP0007` / `FP0008` into that employee's card
+   fields in HR and save.
 
-Re-enrolling one finger only: `enroll_now.py -f 2`. To overwrite a specific
-template page instead of taking the next free slot: `enroll_now.py -f 2 --id 8`.
+From then on a scan matches and publishes `hr/attendance/up` `a:tap` with
+`c=FP0007`, and the node service inserts the punch. Until HR is filled in, the
+scan is correctly rejected as an unknown card.
+
+Do one employee at a time. The two fingers are treated as the same person only
+if they arrive within `enroll_pair_window_s` (25s); after that the next unknown
+finger starts a fresh F1, so a queue cannot mix one person's F2 into another's
+record.
+
+Knobs in `device-to-erp/config.deploy.json` — push and reboot to change them:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `auto_enroll_unknown` | `true` | Set `false` to go back to "no match" errors and capture only over SSH |
+| `auto_enroll_timeout_s` | `20` | How long the sensor waits for the two placements |
+| `enroll_pair_window_s` | `25` | Within this, a second unknown finger is the same employee |
+| `enroll_ids_screen_s` | `60` | How long the ids stay readable |
+
+A passer-by who touches the sensor once and walks away times out without
+consuming a template slot, so idle touches do not fill the library.
+
+### With SSH access (optional)
+
+If you can reach the Pi, you can drive the same capture deliberately instead of
+waiting for an unknown finger:
+
+```bash
+cd ~/device-to-erp-2.0/device-to-erp
+.venv/bin/python enroll_now.py          # finger 1 then finger 2
+.venv/bin/python enroll_now.py -f 2     # re-capture one finger
+.venv/bin/python enroll_now.py -f 2 --id 8   # overwrite a specific page
+```
+
+The reader service holds the sensor open, so this asks it over the local broker
+rather than grabbing `/dev/ttyUSB0`. Ids print in the terminal as well as on the
+OLED.
 
 ## Migrate a Pi that has the old standalone code
 
@@ -140,9 +164,14 @@ automatically.
 
 - **Device lat/lng**: optional. Missing coordinates used to silently
   skip scanning (`L:--` on the OLED). Punches now insert without them.
-- **Enrollment**: run `python3 enroll.py` on the Pi (from `device-to-erp`),
-  then put the printed `FP####` id into the employee's HR fingerprint field.
-  Remote enroll from the HR dashboard is not part of this service.
+- **Enrollment**: an unrecognised finger is captured on the spot and its
+  `FP####` id shown on the OLED (see above); type it into the employee's HR
+  fingerprint field. Remote enroll from the HR dashboard is not part of this
+  service — the dashboard is on another network and this broker is
+  loopback-only.
+- **Template pages**: the next free page comes from the sensor's own occupancy
+  bitmap, so a deleted template's slot is reused instead of overwriting a live
+  employee's finger (which `template_count() + 1` used to do).
 - **Broker security**: mosquitto is localhost-only by default (no listener
   configured), so nothing off the Pi can reach it. If you ever need other
   devices on the LAN to publish, add a listener + password file in

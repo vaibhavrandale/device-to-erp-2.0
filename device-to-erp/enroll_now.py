@@ -23,6 +23,20 @@ from taypro.config import load_config
 from taypro.storage import hardware_id
 
 
+def pick_enroll_slot(
+    ids: dict, idle_s: float, pair_window_s: float
+) -> tuple[int, dict]:
+    """Which slot an unknown finger belongs to, plus the ids to keep on screen.
+
+    Two fingers belong to one employee only if they arrive back to back. After
+    that a fresh person is assumed, otherwise their finger 2 would be shown
+    beside the previous person's finger 1 and copied into the wrong record.
+    """
+    if idle_s >= pair_window_s or (ids.get(1) and ids.get(2)):
+        return 1, {1: "", 2: ""}
+    return (1 if not ids.get(1) else 2), dict(ids)
+
+
 def is_result_for(doc: dict, hw: str) -> bool:
     """True when this up-topic message is our own reader's enroll answer."""
     return doc.get("a") == "enroll_result" and doc.get("hw") == hw

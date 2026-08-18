@@ -9,6 +9,7 @@ import time
 
 from taypro.boot import boot_register
 from taypro.config import load_config, parse_u32
+from enroll_now import pick_enroll_slot
 from taypro.enroll_remote import run_remote_enroll
 from taypro.fingerprint import R307, FingerprintError, finger_id_to_fp
 from taypro.leds import create_leds
@@ -162,8 +163,10 @@ def main() -> int:
     wait_lift = False
     lift_streak = 0
     enrolled_ids = {1: "", 2: ""}
-    ids_hold_s = float(cfg.get("enroll_ids_screen_s") or 60)
-    last_enroll = -ids_hold_s
+    auto_enroll = cfg.get("auto_enroll_unknown") is not False
+    auto_enroll_timeout_s = float(cfg.get("auto_enroll_timeout_s") or 20)
+    pair_window_s = float(cfg.get("enroll_pair_window_s") or 25)
+    last_enroll = -pair_window_s
 
     try:
         while not stop:
@@ -231,7 +234,7 @@ def main() -> int:
                 # Never leave a previous employee's id beside the new one — it
                 # would get copied into their payroll record. Finger 1 always
                 # starts a fresh employee; so does a gap longer than the hold.
-                if finger == 1 or now - last_enroll >= ids_hold_s:
+                if finger == 1 or now - last_enroll >= pair_window_s:
                     enrolled_ids = {1: "", 2: ""}
                 last_enroll = now
                 who = job.get("employee_name") or job.get("employee_id") or "?"
@@ -272,6 +275,39 @@ def main() -> int:
                                 wait_lift = True
                                 lift_streak = 0
                                 tap.handle_template(page)
+                                device_log.sync(force=True)
+                            elif auto_enroll:
+                                # No terminal on site, so an unrecognised finger
+                                # IS the capture request. enroll() wants two
+                                # placements, so a passer-by who touches once and
+                                # walks off times out without eating a slot.
+                                slot, enrolled_ids = pick_enroll_slot(
+                                    enrolled_ids, now - last_enroll, pair_window_s
+                                )
+                                last_enroll = now
+                                device_log.log(f"Unknown finger — capture slot {slot}/2")
+                                fp_id = run_remote_enroll(
+                                    sensor,
+                                    mqtt,
+                                    {"finger": slot, "timeout_s": auto_enroll_timeout_s},
+                                    capacity=capacity,
+                                    oled=oled if (oled and oled.ready) else None,
+                                )
+                                if fp_id:
+                                    enrolled_ids[slot] = fp_id
+                                    if leds:
+                                        leds.trigger_ok()
+                                    if oled and oled.ready:
+                                        oled.show_enroll_ids(
+                                            enrolled_ids[1], enrolled_ids[2]
+                                        )
+                                else:
+                                    if leds:
+                                        leds.trigger_fail()
+                                    if oled and oled.ready:
+                                        oled.show_no_match()
+                                wait_lift = True
+                                lift_streak = 0
                                 device_log.sync(force=True)
                             else:
                                 device_log.log("Finger seen — no match in sensor library")

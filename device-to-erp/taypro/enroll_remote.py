@@ -4,21 +4,42 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from .fingerprint import R307, FingerprintError, finger_id_to_fp
+from .fingerprint import (
+    R307,
+    FingerprintError,
+    decode_index_table,
+    finger_id_to_fp,
+)
 from .mqtt_client import AttendanceMqtt
 from .oled import OledDisplay
 
 
+def occupied_pages(sensor: R307, capacity: int) -> set[int]:
+    groups = max(1, (capacity + 255) // 256)
+    return decode_index_table([sensor.read_index_table(g) for g in range(groups)])
+
+
 def next_template_id(sensor: R307, capacity: int) -> int:
+    """Lowest free page, counting from 1 because FP ids in HR are 1-based.
+
+    A template count is not enough: with pages 1-3 stored and page 2 deleted the
+    count is 2, so count + 1 hands back page 3 and silently overwrites a live
+    employee's finger. Ask the sensor which pages are really occupied.
+    """
+    try:
+        occupied = occupied_pages(sensor, capacity)
+    except FingerprintError:
+        occupied = None  # clone firmware without ReadIndexTable — fall back
+    if occupied is not None:
+        for page in range(1, capacity + 1):
+            if page not in occupied:
+                return page
+        raise FingerprintError("Sensor library full")
+
     count = sensor.template_count()
     if count >= capacity:
         raise FingerprintError("Sensor library full (1000 max)")
-    nxt = count + 1
-    if nxt < 1:
-        nxt = 1
-    if nxt > capacity:
-        raise FingerprintError("Sensor library full")
-    return nxt
+    return count + 1
 
 
 def run_remote_enroll(
