@@ -245,9 +245,6 @@ class AttendanceMqtt:
 
     def send_punch(self, fp_id: str) -> bool:
         """Publish fingerprint punch (MQTT a:tap, c=FP####)."""
-        if not self.storage.has_location():
-            print("[ERR-701] Latitude/longitude not set on device")
-            return False
         self.reset_tap_wait()
         return self.publish_up(
             {

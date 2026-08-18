@@ -55,13 +55,6 @@ class TapHandler:
             if self.oled:
                 self.oled.show_error(701, "NOT READY", "Device not registered to cloud")
             return False
-        if not self.storage.has_location():
-            print("[ERR-706] NO LOCATION — set lat/lng in HR dashboard")
-            if self.leds:
-                self.leds.trigger_fail()
-            if self.oled:
-                self.oled.show_error(706, "NO LOCATION", "Set device lat/lng in HR")
-            return False
         if not self.mqtt.connected():
             print("[ERR-702] MQTT not connected")
             if self.leds:

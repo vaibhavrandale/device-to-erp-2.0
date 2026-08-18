@@ -103,11 +103,8 @@ automatically.
 
 ## Notes
 
-- **Device lat/lng**: a tap is rejected until the device has coordinates
-  (same rule as production). Either set `latitude`/`longitude` in the
-  firmware `config.json`, or set them on the `attendancedevices` document
-  in the DB — the server pushes them to the device via the `a:config`
-  down-message on the next heartbeat if you set `config_pending: true`.
+- **Device lat/lng**: optional. Missing coordinates used to silently
+  skip scanning (`L:--` on the OLED). Punches now insert without them.
 - **Enrollment**: run `python3 enroll.py` on the Pi (from `device-to-erp`),
   then put the printed `FP####` id into the employee's HR fingerprint field.
   Remote enroll from the HR dashboard is not part of this service.

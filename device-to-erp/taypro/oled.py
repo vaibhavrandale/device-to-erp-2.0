@@ -199,14 +199,17 @@ class OledDisplay:
         cloud = "OK" if mqtt_ok else "--"
         clock = datetime.now().strftime("%H:%M:%S")
         ident = storage.device_id if storage.is_registered() else f"HW-{hardware_id()[-6:]}"
-        loc = "OK" if storage.has_location() else "--"
         with self._canvas() as draw:
             # spaced status row
-            draw.text((0, 0), f"W:{wifi}   M:{cloud}   L:{loc}", font=self._font, fill=1)
+            draw.text((0, 0), f"W:{wifi}   M:{cloud}", font=self._font, fill=1)
             draw.line((0, 10, self.width - 1, 10), fill=1)
             self._centered(draw, clock, 12, self._font_lg)
             draw.rectangle((10, 30, self.width - 10, 44), outline=1, fill=0)
-            self._centered(draw, "SCAN FINGER", 32)
+            if templates == 0:
+                prompt = "ENROLL FIRST"
+            else:
+                prompt = "SCAN FINGER"
+            self._centered(draw, prompt, 32)
             bottom = ident
             if templates is not None:
                 bottom = f"{ident}  FP:{templates}"

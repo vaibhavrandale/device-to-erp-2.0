@@ -311,19 +311,6 @@ export const processAttendanceTap = async ({
     deviceLongitude: device.longitude,
   });
 
-  if (!isValidLatLng(coords.latitude, coords.longitude)) {
-    return {
-      success: false,
-      type: "tap",
-      card_id: normalizedCardId,
-      device_id: normalizedDeviceId,
-      message:
-        "Device latitude/longitude not set. Set them on the device record in the DB.",
-      tapped_at: tapTime,
-      source,
-    };
-  }
-
   const existingTap = await AttendancePunch.findOne({
     tap_id: buildTapId(normalizedDeviceId, normalizedCardId, tapTime),
   });

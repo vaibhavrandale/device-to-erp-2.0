@@ -125,8 +125,14 @@ def sync_deployed_config() -> None:
         return
 
     changed = [
-        key for key, value in deployed.items() if key not in cfg or cfg[key] != value
+        key
+        for key, value in deployed.items()
+        if key not in cfg or cfg[key] != value
     ]
+    # Don't wipe Pi-local lat/lng with null from the repo deploy file.
+    for key in ("latitude", "longitude"):
+        if key in changed and deployed.get(key) is None and cfg.get(key) is not None:
+            changed.remove(key)
     if not changed:
         return
     for key in changed:

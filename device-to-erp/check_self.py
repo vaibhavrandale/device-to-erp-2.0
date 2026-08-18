@@ -17,6 +17,7 @@ def main() -> None:
     s.device_id = "office-gate"
     s.device_key = "abc"
     assert s.is_registered()
+    assert not s.has_location()
     s.latitude = 19.07
     s.longitude = 72.87
     assert s.has_location()

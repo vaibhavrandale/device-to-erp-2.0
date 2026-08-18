@@ -223,7 +223,8 @@ def main() -> int:
                 time.sleep(poll_s)
                 continue
 
-            if storage.is_registered() and storage.has_location() and not tap.in_flight:
+            # Location is optional for local DB insert — still poll the sensor.
+            if storage.is_registered() and not tap.in_flight:
                 try:
                     img = sensor.get_image()
                     if wait_lift:
