@@ -37,6 +37,8 @@ class OledDisplay:
         self._font_lg = None
         self._status_ip = ""
         self._status_extra = ""
+        self._ram_line = "RAM --"
+        self._disk_line = "SD  --"
 
         try:
             from luma.core.interface.serial import i2c
@@ -129,7 +131,13 @@ class OledDisplay:
     def poll_clear_temp(self, storage: DeviceStorage, mqtt_ok: bool) -> None:
         if self.showing_tap and time.monotonic() >= self.tap_until:
             self.showing_tap = False
-            self.show_ready(storage, wifi_ok=True, mqtt_ok=mqtt_ok)
+            self.show_ready(
+                storage,
+                wifi_ok=True,
+                mqtt_ok=mqtt_ok,
+                ram_line=self._ram_line,
+                disk_line=self._disk_line,
+            )
 
     def show_splash(self) -> None:
         if not self.ready:
@@ -192,27 +200,29 @@ class OledDisplay:
         mqtt_ok: bool = True,
         *,
         templates: int | None = None,
+        ram_line: str = "",
+        disk_line: str = "",
     ) -> None:
         if not self.ready or self.showing_tap:
             return
         wifi = "OK" if wifi_ok else "--"
         cloud = "OK" if mqtt_ok else "--"
-        clock = datetime.now().strftime("%H:%M:%S")
+        clock = datetime.now().strftime("%H:%M")
         ident = storage.device_id if storage.is_registered() else f"HW-{hardware_id()[-6:]}"
+        prompt = "ENROLL FIRST" if templates == 0 else "SCAN FINGER"
+        bottom = ident if templates is None else f"{ident} FP:{templates}"
+        if ram_line:
+            self._ram_line = ram_line
+        if disk_line:
+            self._disk_line = disk_line
+        ram_line = ram_line or self._ram_line
+        disk_line = disk_line or self._disk_line
         with self._canvas() as draw:
-            # spaced status row
-            draw.text((0, 0), f"W:{wifi}   M:{cloud}", font=self._font, fill=1)
+            draw.text((0, 0), f"W:{wifi} M:{cloud} {clock}", font=self._font, fill=1)
             draw.line((0, 10, self.width - 1, 10), fill=1)
-            self._centered(draw, clock, 12, self._font_lg)
-            draw.rectangle((10, 30, self.width - 10, 44), outline=1, fill=0)
-            if templates == 0:
-                prompt = "ENROLL FIRST"
-            else:
-                prompt = "SCAN FINGER"
-            self._centered(draw, prompt, 32)
-            bottom = ident
-            if templates is not None:
-                bottom = f"{ident}  FP:{templates}"
+            draw.text((0, 14), self._truncate(ram_line or "RAM --", 21), font=self._font, fill=1)
+            draw.text((0, 26), self._truncate(disk_line or "SD  --", 21), font=self._font, fill=1)
+            self._centered(draw, prompt, 40)
             self._centered(draw, self._truncate(bottom, 21), 52)
 
     def show_processing(self, fp_id: str) -> None:

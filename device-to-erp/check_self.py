@@ -3,6 +3,7 @@
 
 from taypro.fingerprint import finger_id_to_fp
 from taypro.storage import DeviceStorage
+from taypro.sysmem import format_bytes, memory_lines
 
 
 def main() -> None:
@@ -21,6 +22,12 @@ def main() -> None:
     s.latitude = 19.07
     s.longitude = 72.87
     assert s.has_location()
+    assert format_bytes(1024) == "1K"
+    assert format_bytes(12 * 1024 * 1024) == "12M"
+    assert format_bytes(2 * 1024 * 1024 * 1024) == "2.0G"
+    ram, disk = memory_lines()
+    assert ram.startswith("RAM ")
+    assert disk.startswith("SD")
     print("self-check OK")
 
 

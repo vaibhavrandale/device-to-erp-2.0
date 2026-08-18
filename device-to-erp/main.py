@@ -16,6 +16,7 @@ from taypro.logger import device_log
 from taypro.mqtt_client import AttendanceMqtt
 from taypro.oled import create_oled
 from taypro.storage import DeviceStorage, hardware_id
+from taypro.sysmem import memory_lines
 from taypro.tap import TapHandler
 
 
@@ -137,6 +138,8 @@ def main() -> int:
 
     last_heartbeat = time.monotonic()
     last_ui = 0.0
+    last_mem = 0.0
+    ram_line, disk_line = memory_lines()
     heartbeat_s = float(cfg["heartbeat_interval_s"])
     poll_s = float(cfg["scan_poll_s"])
     capacity = int(params["capacity"] or 200)
@@ -151,6 +154,8 @@ def main() -> int:
             wifi_ok=True,
             mqtt_ok=mqtt.connected(),
             templates=templates,
+            ram_line=ram_line,
+            disk_line=disk_line,
         )
 
     wait_lift = False
@@ -187,9 +192,17 @@ def main() -> int:
 
             device_log.sync(force=False)
 
+            if (
+                not tap.in_flight
+                and not mqtt.enroll_pending
+                and now - last_mem >= 10.0
+            ):
+                ram_line, disk_line = memory_lines()
+                print(ram_line, "|", disk_line, flush=True)
+                last_mem = now
             if oled and oled.ready:
                 oled.poll_clear_temp(storage, mqtt_ok=mqtt.connected())
-                if not oled.showing_tap and now - last_ui >= 1.0:
+                if not oled.showing_tap and not tap.in_flight and now - last_ui >= 1.0:
                     try:
                         templates = sensor.template_count()
                     except FingerprintError:
@@ -199,6 +212,8 @@ def main() -> int:
                         wifi_ok=True,
                         mqtt_ok=mqtt.connected(),
                         templates=templates,
+                        ram_line=ram_line,
+                        disk_line=disk_line,
                     )
                     last_ui = now
 
