@@ -8,15 +8,12 @@ import {
   isValidLatLng,
   resolveTapCoordinates,
   buildHeartbeatPayload,
-  parseFingerprintLocation,
 } from "./attendance.js";
 
 assert.strictEqual(normalizeCardId("  fp0007 "), "FP0007");
 assert.strictEqual(normalizeDeviceId("  Office-Pi "), "office-pi");
 assert.strictEqual(normalizeHardwareId("B8:27:EB:AA:BB:CC"), "b827ebaabbcc");
 assert.strictEqual(normalizeHardwareId(null), "");
-assert.strictEqual(parseFingerprintLocation("FP0007"), 7);
-assert.strictEqual(parseFingerprintLocation("abc"), null);
 
 const t = new Date("2026-01-02T03:04:05Z");
 assert.strictEqual(

@@ -28,7 +28,8 @@ def run_remote_enroll(
     *,
     capacity: int = 1000,
     oled: Optional[OledDisplay] = None,
-) -> bool:
+) -> Optional[str]:
+    """Enroll one finger. Returns the FP id (e.g. "FP0007") or None on failure."""
     timeout_s = float(job.get("timeout_s") or 60)
     hr_user_id = str(job.get("hr_user_id") or "")
     employee_id = str(job.get("employee_id") or "")
@@ -59,9 +60,6 @@ def run_remote_enroll(
         fp_id = finger_id_to_fp(location)
         msg = f"Finger {finger}/2 enrolled as {fp_id}"
         print(msg)
-        if oled and oled.ready:
-            oled.show_lines("ENROLLED OK", f"Finger {finger}/2", fp_id, label[:21])
-            oled._mark_temp(4.0)
 
         mqtt.send_enroll_result(
             ok=True,
@@ -72,7 +70,7 @@ def run_remote_enroll(
             message=msg,
             finger=finger,
         )
-        return True
+        return fp_id
     except Exception as exc:
         err = str(exc)
         print(f"UI enroll failed: {err}")
@@ -87,4 +85,4 @@ def run_remote_enroll(
             message=err,
             finger=finger,
         )
-        return False
+        return None

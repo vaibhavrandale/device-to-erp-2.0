@@ -63,16 +63,40 @@ from `config.deploy.env` into the private runtime `.env`, then installs and
 starts both `taypro-attendance-server` and `taypro-fingerprint`. No manual
 configuration or second install command is required.
 
-## Enroll from HR UI (local MQTT)
+## Enroll an employee (register at the Pi, type ids into HR)
 
-The Python reader already handles `a:enroll` on the Pi broker. The Node
-service now starts enroll and saves `enroll_result` to MongoDB.
+The HR dashboard sits on another network and the broker here is
+loopback-only, so the dashboard cannot start an enroll. Register the fingers
+at the Pi first, read the two template ids off the OLED, then type them into
+the HR form.
 
-HR dashboard → `http://<pi-lan-ip>:3000/.../fingerprint/enroll` → local
-MQTT `hr/attendance/down/hw/{hw}` → R307 → `hr/attendance/up` `a:enroll_result`.
+On the Pi:
 
-The dashboard uses the device's reported LAN IP automatically. Place the
-finger twice on the sensor when the OLED says ENROLL.
+```bash
+cd ~/device-to-erp-2.0/device-to-erp
+.venv/bin/python enroll_now.py
+```
+
+That enrols finger 1 then finger 2 — place each finger twice when the OLED
+says PLACE. The reader service keeps the sensor open, so this asks it over
+the local broker rather than grabbing `/dev/ttyUSB0`.
+
+Both ids print in the terminal and stay on the OLED for 60 seconds
+(`enroll_ids_screen_s` in `device-to-erp/config.deploy.json`):
+
+```
+NOTE THESE IDS
+F1  FP0007
+F2  FP0008
+Enter in HR form
+```
+
+Put `FP0007` / `FP0008` into the employee's card fields in HR and save. From
+then on a scan publishes `hr/attendance/up` `a:tap` with `c=FP0007`, and the
+node service inserts the punch.
+
+Re-enrolling one finger only: `enroll_now.py -f 2`. To overwrite a specific
+template page instead of taking the next free slot: `enroll_now.py -f 2 --id 8`.
 
 ## Migrate a Pi that has the old standalone code
 

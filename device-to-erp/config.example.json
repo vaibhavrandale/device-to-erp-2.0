@@ -23,6 +23,7 @@
   "oled_height": 64,
   "tap_screen_s": 5,
   "error_screen_s": 8,
+  "enroll_ids_screen_s": 60,
   "led_enabled": true,
   "led_net_pin": 17,
   "led_ok_pin": 27,

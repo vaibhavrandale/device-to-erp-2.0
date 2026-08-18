@@ -12,6 +12,8 @@ WIDTH = 128
 HEIGHT = 64
 RESULT_SCREEN_S = 5.0
 ERROR_SCREEN_S = 8.0
+# Long hold: the operator copies these ids onto paper / into the HR form.
+ENROLL_IDS_SCREEN_S = 60.0
 
 
 class OledDisplay:
@@ -24,6 +26,7 @@ class OledDisplay:
         height: int = HEIGHT,
         tap_screen_s: float = RESULT_SCREEN_S,
         error_screen_s: float = ERROR_SCREEN_S,
+        enroll_ids_screen_s: float = ENROLL_IDS_SCREEN_S,
     ):
         self.ready = False
         self.device = None
@@ -31,6 +34,7 @@ class OledDisplay:
         self.height = height
         self.tap_screen_s = tap_screen_s
         self.error_screen_s = error_screen_s
+        self.enroll_ids_screen_s = enroll_ids_screen_s
         self.showing_tap = False
         self.tap_until = 0.0
         self._font = None
@@ -298,6 +302,19 @@ class OledDisplay:
             self._centered(draw, f"Try again in {left}s", 36)
             self._centered(draw, "Finger ignored", 50)
 
+    def show_enroll_ids(self, finger1: str = "", finger2: str = "") -> None:
+        """Hold the enrolled ids on screen so the operator can copy them into HR."""
+        if not self.ready:
+            return
+        self._mark_temp(self.enroll_ids_screen_s)
+        with self._canvas() as draw:
+            self._centered(draw, "NOTE THESE IDS", 0)
+            draw.line((0, 10, self.width - 1, 10), fill=1)
+            self._centered(draw, f"F1  {finger1 or '-'}", 15, self._font_lg)
+            self._centered(draw, f"F2  {finger2 or '-'}", 33, self._font_lg)
+            draw.line((0, 50, self.width - 1, 50), fill=1)
+            self._centered(draw, "Enter in HR form", 53)
+
     def show_enroll(self, finger: int, name: str, step: str) -> None:
         """Live enroll coach for remote OLED (no monitor)."""
         if not self.ready:
@@ -350,4 +367,7 @@ def create_oled(cfg: dict) -> Optional[OledDisplay]:
         height=int(cfg.get("oled_height") or 64),
         tap_screen_s=float(cfg.get("tap_screen_s") or RESULT_SCREEN_S),
         error_screen_s=float(cfg.get("error_screen_s") or ERROR_SCREEN_S),
+        enroll_ids_screen_s=float(
+            cfg.get("enroll_ids_screen_s") or ENROLL_IDS_SCREEN_S
+        ),
     )

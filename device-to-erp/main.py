@@ -161,6 +161,9 @@ def main() -> int:
 
     wait_lift = False
     lift_streak = 0
+    enrolled_ids = {1: "", 2: ""}
+    ids_hold_s = float(cfg.get("enroll_ids_screen_s") or 60)
+    last_enroll = -ids_hold_s
 
     try:
         while not stop:
@@ -224,18 +227,28 @@ def main() -> int:
                 mqtt.enroll_pending = None
                 wait_lift = True
                 lift_streak = 0
+                finger = 2 if int(job.get("finger") or 1) == 2 else 1
+                # Never leave a previous employee's id beside the new one — it
+                # would get copied into their payroll record. Finger 1 always
+                # starts a fresh employee; so does a gap longer than the hold.
+                if finger == 1 or now - last_enroll >= ids_hold_s:
+                    enrolled_ids = {1: "", 2: ""}
+                last_enroll = now
                 who = job.get("employee_name") or job.get("employee_id") or "?"
-                device_log.log(
-                    f"Enroll start finger={job.get('finger') or 1}/2 employee={who}"
-                )
-                ok = run_remote_enroll(
+                device_log.log(f"Enroll start finger={finger}/2 employee={who}")
+                fp_id = run_remote_enroll(
                     sensor,
                     mqtt,
                     job,
                     capacity=capacity,
                     oled=oled if (oled and oled.ready) else None,
                 )
-                device_log.log("Enroll OK" if ok else "Enroll failed")
+                if fp_id:
+                    # Held on screen: nobody types ids from a headless Pi's stdout.
+                    enrolled_ids[finger] = fp_id
+                    if oled and oled.ready:
+                        oled.show_enroll_ids(enrolled_ids[1], enrolled_ids[2])
+                device_log.log(f"Enroll OK {fp_id}" if fp_id else "Enroll failed")
                 device_log.sync(force=True)
                 time.sleep(poll_s)
                 continue
