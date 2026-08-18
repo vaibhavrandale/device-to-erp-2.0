@@ -1,12 +1,19 @@
 // Pi-local attendance server: local mosquitto → this process → MongoDB.
-// One job: turn hr/attendance/up MQTT messages into AttendancePunch inserts.
+// MQTT: register / heartbeat / tap / enroll_result
+// HTTP: HR UI enroll start → local MQTT a:enroll (same broker as the reader)
 import "dotenv/config";
+import http from "http";
 import mongoose from "mongoose";
 import mqtt from "mqtt";
-import { handleAttendanceMqttUp, setDownPublisher } from "./attendance.js";
+import {
+  handleAttendanceMqttUp,
+  requestFingerprintEnroll,
+  setDownPublisher,
+} from "./attendance.js";
 
 const MONGODB_URI = process.env.MONGODB_URI;
 const MQTT_URL = process.env.MQTT_URL || "mqtt://127.0.0.1:1883";
+const HTTP_PORT = Number(process.env.HTTP_PORT || 3000);
 const TOPIC_UP = "hr/attendance/up";
 
 if (!MONGODB_URI) {
@@ -57,4 +64,65 @@ client.on("message", async (topic, message) => {
   } catch (err) {
     console.error(`Attendance MQTT handler error: ${err.message}`);
   }
+});
+
+const cors = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+};
+
+const sendJson = (res, code, body) => {
+  res.writeHead(code, { "Content-Type": "application/json", ...cors });
+  res.end(JSON.stringify(body));
+};
+
+const readJsonBody = async (req) => {
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  const raw = Buffer.concat(chunks).toString("utf8").trim();
+  if (!raw) return {};
+  return JSON.parse(raw);
+};
+
+const httpServer = http.createServer(async (req, res) => {
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, cors);
+    res.end();
+    return;
+  }
+
+  const path = new URL(req.url || "/", "http://localhost").pathname;
+
+  if (req.method === "GET" && (path === "/" || path === "/health")) {
+    sendJson(res, 200, {
+      ok: true,
+      mqtt: Boolean(client.connected),
+      mongo: mongoose.connection.readyState === 1,
+    });
+    return;
+  }
+
+  if (
+    req.method === "POST" &&
+    path.endsWith("/fingerprint/enroll")
+  ) {
+    try {
+      const body = await readJsonBody(req);
+      const result = await requestFingerprintEnroll(body);
+      sendJson(res, 200, result);
+    } catch (err) {
+      sendJson(res, err.statusCode || 500, {
+        success: false,
+        message: err.message,
+      });
+    }
+    return;
+  }
+
+  sendJson(res, 404, { success: false, message: "Not found" });
+});
+
+httpServer.listen(HTTP_PORT, "0.0.0.0", () => {
+  console.log(`HTTP enroll API on :${HTTP_PORT} (LAN)`);
 });

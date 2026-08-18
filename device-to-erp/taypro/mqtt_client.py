@@ -194,7 +194,13 @@ class AttendanceMqtt:
     def _local_ip(self) -> str:
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect((self.host, self.port))
+            # Local mosquitto is 127.0.0.1 — probing it would report loopback,
+            # which the HR UI cannot use. Probe a public IP to learn the LAN address.
+            probe_host = self.host
+            probe_port = self.port
+            if probe_host in ("127.0.0.1", "localhost", "::1"):
+                probe_host, probe_port = "8.8.8.8", 80
+            s.connect((probe_host, probe_port))
             ip = s.getsockname()[0]
             s.close()
             return ip

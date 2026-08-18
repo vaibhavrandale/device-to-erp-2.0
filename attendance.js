@@ -1,6 +1,6 @@
 // Trimmed copy of taypro-console-backend/attendance/attendance.service.js.
-// Kept: register / heartbeat / tap → punch insert (what the Pi firmware needs).
-// Dropped: sockets, status events, device logs, remote enroll, reports, frappe.
+// Kept: register / heartbeat / tap / remote fingerprint enroll (HR UI).
+// Dropped: sockets, status events, device logs, reports, frappe.
 import crypto from "crypto";
 import { AttendanceDevice, AttendancePunch, HRUser } from "./models.js";
 
@@ -507,6 +507,183 @@ export const buildHeartbeatPayload = (data) => ({
   ip: data.ip || "",
 });
 
+export const parseFingerprintLocation = (cardId) => {
+  const match = normalizeCardId(cardId).match(/^FP(\d{1,4})$/);
+  if (!match) return null;
+  const n = Number(match[1]);
+  return Number.isFinite(n) && n >= 1 ? n : null;
+};
+
+/**
+ * HR UI → HTTP → this process → local MQTT a:enroll → Pi R307.
+ * Finger 1 → rfid_card_id, finger 2 → rfid_card_id_2.
+ */
+export const requestFingerprintEnroll = async ({
+  device_id,
+  hr_user_id,
+  location,
+  finger = 1,
+}) => {
+  const deviceId = normalizeDeviceId(device_id);
+  if (!deviceId) {
+    const error = new Error("device_id is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const fingerSlot = Number(finger) === 2 ? 2 : 1;
+
+  const device = await AttendanceDevice.findOne({
+    device_id: deviceId,
+    is_delete: false,
+  });
+  if (!device) {
+    const error = new Error("Attendance device not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+  if (!device.hardware_id) {
+    const error = new Error(
+      "Device has no hardware_id yet (wait for MQTT register).",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+  if (device.status !== "online") {
+    const error = new Error("Device is offline. Power on the Pi reader first.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  let hrUser = null;
+  let page = location != null && location !== "" ? Number(location) : null;
+  if (hr_user_id) {
+    hrUser = await HRUser.findOne({ _id: hr_user_id, is_delete: false });
+    if (!hrUser) {
+      const error = new Error("HR user not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+    if (!Number.isFinite(page) || page < 1) {
+      const existingCard =
+        fingerSlot === 2 ? hrUser.rfid_card_id_2 : hrUser.rfid_card_id;
+      page = parseFingerprintLocation(existingCard);
+    }
+  }
+
+  const payload = {
+    a: "enroll",
+    device_id: device.device_id,
+    hr_user_id: hrUser ? String(hrUser._id) : "",
+    employee_id: hrUser?.employee_id || "",
+    employee_name: hrUser?.name || "",
+    finger: fingerSlot,
+    timeout_s: 60,
+  };
+  if (Number.isFinite(page) && page >= 1) {
+    payload.location = page;
+  }
+
+  const mqttSent = publishAttendanceDown(device.hardware_id, payload);
+  if (!mqttSent) {
+    const error = new Error("MQTT broker not connected — cannot start enroll.");
+    error.statusCode = 503;
+    throw error;
+  }
+
+  console.log(
+    `enroll start finger=${fingerSlot}/2 device=${device.device_id} user=${payload.employee_name || payload.hr_user_id || "?"}`,
+  );
+
+  return {
+    success: true,
+    mqtt_sent: true,
+    device_id: device.device_id,
+    finger: fingerSlot,
+    location: payload.location || null,
+    message: `Enroll finger ${fingerSlot}/2 started. Place that finger twice on the sensor.`,
+  };
+};
+
+export const processFingerprintEnrollResult = async ({
+  device,
+  ok,
+  card_id,
+  location,
+  hr_user_id,
+  employee_id,
+  message,
+  finger = 1,
+}) => {
+  const card = normalizeCardId(card_id);
+  const success = Boolean(ok) && Boolean(card);
+  const fingerSlot = Number(finger) === 2 ? 2 : 1;
+  const field = fingerSlot === 2 ? "rfid_card_id_2" : "rfid_card_id";
+
+  let hrUser = null;
+  if (success && hr_user_id) {
+    hrUser = await HRUser.findOne({ _id: hr_user_id, is_delete: false });
+    if (hrUser) {
+      const conflict = await HRUser.findOne({
+        is_delete: false,
+        _id: { $ne: hrUser._id },
+        location: hrUser.location,
+        $or: [{ rfid_card_id: card }, { rfid_card_id_2: card }],
+      });
+      if (conflict) {
+        return {
+          success: false,
+          message: `Card ${card} already assigned to another employee at ${conflict.location}.`,
+        };
+      }
+      const other =
+        fingerSlot === 2 ? hrUser.rfid_card_id : hrUser.rfid_card_id_2;
+      if (other && normalizeCardId(other) === card) {
+        return {
+          success: false,
+          message: "Both fingers must map to different template ids.",
+        };
+      }
+      hrUser[field] = card;
+      await hrUser.save();
+    }
+  }
+
+  const payload = {
+    phase: success ? "done" : "failed",
+    ok: success,
+    device_id: device?.device_id || "",
+    hr_user_id: hr_user_id ? String(hr_user_id) : "",
+    employee_id: employee_id || hrUser?.employee_id || "",
+    employee_name: hrUser?.name || "",
+    card_id: card || "",
+    finger: fingerSlot,
+    field,
+    location: location ?? null,
+    message:
+      message ||
+      (success
+        ? `Finger ${fingerSlot}/2 enrolled as ${card}`
+        : "Fingerprint enroll failed"),
+  };
+
+  console.log(`enroll ${payload.phase}: ${payload.message}`);
+
+  if (device?.hardware_id) {
+    publishAttendanceDown(device.hardware_id, {
+      a: "enroll_result",
+      ok: success,
+      success,
+      c: card,
+      card_id: card,
+      finger: fingerSlot,
+      message: payload.message,
+    });
+  }
+
+  return { success, ...payload };
+};
+
 export const handleAttendanceMqttUp = async (data) => {
   const action = String(data.a || data.action || "").toLowerCase();
   const hardwareId = data.hw || data.hardware_id || data.hardwareId;
@@ -556,8 +733,7 @@ export const handleAttendanceMqttUp = async (data) => {
     return processAttendanceHeartbeat(buildHeartbeatPayload(data));
   }
 
-  if (action !== "tap") {
-    // log / enroll_result etc. — out of scope, attendance insert only
+  if (action !== "tap" && action !== "enroll_result") {
     return null;
   }
 
@@ -580,6 +756,19 @@ export const handleAttendanceMqttUp = async (data) => {
   // Device lost its key (fresh SD card etc.) — re-push config so it recovers.
   if (!String(deviceKey || "").trim()) {
     pushDeviceConfigToMqtt(authorizedDevice);
+  }
+
+  if (action === "enroll_result") {
+    return processFingerprintEnrollResult({
+      device: authorizedDevice,
+      ok: data.ok ?? data.success,
+      card_id: data.card_id || data.c,
+      location: data.location || data.page || data.id,
+      hr_user_id: data.hr_user_id || data.hrUserId,
+      employee_id: data.employee_id || data.employeeId,
+      message: data.message || data.msg || "",
+      finger: data.finger || 1,
+    });
   }
 
   const result = await processAttendanceTap({

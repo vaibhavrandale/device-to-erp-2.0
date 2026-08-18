@@ -63,6 +63,17 @@ from `config.deploy.env` into the private runtime `.env`, then installs and
 starts both `taypro-attendance-server` and `taypro-fingerprint`. No manual
 configuration or second install command is required.
 
+## Enroll from HR UI (local MQTT)
+
+The Python reader already handles `a:enroll` on the Pi broker. The Node
+service now starts enroll and saves `enroll_result` to MongoDB.
+
+HR dashboard → `http://<pi-lan-ip>:3000/.../fingerprint/enroll` → local
+MQTT `hr/attendance/down/hw/{hw}` → R307 → `hr/attendance/up` `a:enroll_result`.
+
+The dashboard uses the device's reported LAN IP automatically. Place the
+finger twice on the sensor when the OLED says ENROLL.
+
 ## Migrate a Pi that has the old standalone code
 
 Stop the old reader and keep its folder as a backup, then clone this combined
