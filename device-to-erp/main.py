@@ -16,7 +16,7 @@ from taypro.logger import device_log
 from taypro.mqtt_client import AttendanceMqtt
 from taypro.oled import create_oled
 from taypro.storage import DeviceStorage, hardware_id
-from taypro.sysmem import memory_lines
+from taypro.sysmem import memory_lines, memory_pcts
 from taypro.tap import TapHandler
 
 
@@ -140,6 +140,7 @@ def main() -> int:
     last_ui = 0.0
     last_mem = 0.0
     ram_line, disk_line = memory_lines()
+    ram_pct, disk_pct = memory_pcts()
     heartbeat_s = float(cfg["heartbeat_interval_s"])
     poll_s = float(cfg["scan_poll_s"])
     capacity = int(params["capacity"] or 200)
@@ -154,8 +155,8 @@ def main() -> int:
             wifi_ok=True,
             mqtt_ok=mqtt.connected(),
             templates=templates,
-            ram_line=ram_line,
-            disk_line=disk_line,
+            ram_pct=ram_pct,
+            disk_pct=disk_pct,
         )
 
     wait_lift = False
@@ -198,6 +199,7 @@ def main() -> int:
                 and now - last_mem >= 10.0
             ):
                 ram_line, disk_line = memory_lines()
+                ram_pct, disk_pct = memory_pcts()
                 print(ram_line, "|", disk_line, flush=True)
                 last_mem = now
             if oled and oled.ready:
@@ -212,8 +214,8 @@ def main() -> int:
                         wifi_ok=True,
                         mqtt_ok=mqtt.connected(),
                         templates=templates,
-                        ram_line=ram_line,
-                        disk_line=disk_line,
+                        ram_pct=ram_pct,
+                        disk_pct=disk_pct,
                     )
                     last_ui = now
 

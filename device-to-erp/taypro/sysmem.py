@@ -57,6 +57,14 @@ def read_disk(path: str = "/") -> Optional[tuple[int, int]]:
     return used, total
 
 
+def memory_pcts() -> tuple[int | None, int | None]:
+    ram = read_ram()
+    disk = read_disk("/")
+    ram_pct = _pct(*ram) if ram else None
+    disk_pct = _pct(*disk) if disk else None
+    return ram_pct, disk_pct
+
+
 def memory_lines() -> tuple[str, str]:
     ram = read_ram()
     disk = read_disk("/")

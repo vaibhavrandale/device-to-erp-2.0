@@ -37,8 +37,8 @@ class OledDisplay:
         self._font_lg = None
         self._status_ip = ""
         self._status_extra = ""
-        self._ram_line = "RAM --"
-        self._disk_line = "SD  --"
+        self._ram_pct: int | None = None
+        self._disk_pct: int | None = None
 
         try:
             from luma.core.interface.serial import i2c
@@ -135,8 +135,8 @@ class OledDisplay:
                 storage,
                 wifi_ok=True,
                 mqtt_ok=mqtt_ok,
-                ram_line=self._ram_line,
-                disk_line=self._disk_line,
+                ram_pct=self._ram_pct,
+                disk_pct=self._disk_pct,
             )
 
     def show_splash(self) -> None:
@@ -193,6 +193,18 @@ class OledDisplay:
             self._centered(draw, self._truncate(device_id, 20), 54)
         self._mark_temp(3.0)
 
+    def _meter(self, draw, y: int, label: str, pct: int | None) -> None:
+        draw.text((0, y), label, font=self._font, fill=1)
+        bx, by, bw, bh = 28, y + 1, 70, 8
+        draw.rectangle((bx, by, bx + bw, by + bh), outline=1, fill=0)
+        if pct is None:
+            draw.text((bx + bw + 4, y), "--", font=self._font, fill=1)
+            return
+        inner = max(0, min(bw - 2, int((bw - 2) * pct / 100)))
+        if inner:
+            draw.rectangle((bx + 1, by + 1, bx + inner, by + bh - 1), outline=1, fill=1)
+        draw.text((bx + bw + 3, y), f"{pct}%", font=self._font, fill=1)
+
     def show_ready(
         self,
         storage: DeviceStorage,
@@ -200,8 +212,8 @@ class OledDisplay:
         mqtt_ok: bool = True,
         *,
         templates: int | None = None,
-        ram_line: str = "",
-        disk_line: str = "",
+        ram_pct: int | None = None,
+        disk_pct: int | None = None,
     ) -> None:
         if not self.ready or self.showing_tap:
             return
@@ -211,17 +223,15 @@ class OledDisplay:
         ident = storage.device_id if storage.is_registered() else f"HW-{hardware_id()[-6:]}"
         prompt = "ENROLL FIRST" if templates == 0 else "SCAN FINGER"
         bottom = ident if templates is None else f"{ident} FP:{templates}"
-        if ram_line:
-            self._ram_line = ram_line
-        if disk_line:
-            self._disk_line = disk_line
-        ram_line = ram_line or self._ram_line
-        disk_line = disk_line or self._disk_line
+        if ram_pct is not None:
+            self._ram_pct = ram_pct
+        if disk_pct is not None:
+            self._disk_pct = disk_pct
         with self._canvas() as draw:
-            draw.text((0, 0), f"W:{wifi} M:{cloud} {clock}", font=self._font, fill=1)
+            draw.text((0, 0), f"W:{wifi}  M:{cloud}   {clock}", font=self._font, fill=1)
             draw.line((0, 10, self.width - 1, 10), fill=1)
-            draw.text((0, 14), self._truncate(ram_line or "RAM --", 21), font=self._font, fill=1)
-            draw.text((0, 26), self._truncate(disk_line or "SD  --", 21), font=self._font, fill=1)
+            self._meter(draw, 14, "RAM", self._ram_pct)
+            self._meter(draw, 26, "DISK", self._disk_pct)
             self._centered(draw, prompt, 40)
             self._centered(draw, self._truncate(bottom, 21), 52)
 

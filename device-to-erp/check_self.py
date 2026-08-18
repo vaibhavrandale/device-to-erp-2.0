@@ -3,7 +3,7 @@
 
 from taypro.fingerprint import finger_id_to_fp
 from taypro.storage import DeviceStorage
-from taypro.sysmem import format_bytes, memory_lines
+from taypro.sysmem import format_bytes, memory_lines, memory_pcts
 
 
 def main() -> None:
@@ -25,6 +25,9 @@ def main() -> None:
     assert format_bytes(1024) == "1K"
     assert format_bytes(12 * 1024 * 1024) == "12M"
     assert format_bytes(2 * 1024 * 1024 * 1024) == "2.0G"
+    ram_pct, disk_pct = memory_pcts()
+    assert ram_pct is None or 0 <= ram_pct <= 100
+    assert disk_pct is None or 0 <= disk_pct <= 100
     ram, disk = memory_lines()
     assert ram.startswith("RAM ")
     assert disk.startswith("SD")
