@@ -66,7 +66,36 @@ def run(cmd: list[str], cwd: Path | None = None, check: bool = False, timeout: i
         return 1
 
 
+def git_toplevel() -> Path | None:
+    try:
+        p = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=str(ROOT),
+            check=False,
+            text=True,
+            capture_output=True,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+            timeout=15,
+        )
+    except Exception:
+        return None
+    if p.returncode != 0:
+        return None
+    return Path(p.stdout.strip())
+
+
 def git_pull() -> None:
+    top = git_toplevel()
+    if top is None:
+        log("not a git checkout — skip pull")
+        return
+    # Firmware now lives inside device-to-erp-2.0. The Node systemd unit already
+    # does git reset --hard origin/main. A second reset here races on .git/index.lock
+    # and takes both services down.
+    if top.resolve() != ROOT.resolve():
+        log(f"nested in {top} — parent service pulls, skip git here")
+        return
+
     # Wait a bit for network after reboot
     for i in range(12):
         rc = run(["ping", "-c", "1", "-W", "2", "8.8.8.8"])
