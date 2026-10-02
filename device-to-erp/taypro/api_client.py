@@ -125,6 +125,46 @@ class ConsoleApi:
             "http_status": status,
         }
 
+    def heartbeat(
+        self,
+        *,
+        hardware_id: str,
+        device_id: str = "",
+        device_name: str = "",
+        device_key: str = "",
+        ip: str = "",
+        status: str = "online",
+        timeout_s: float = 12,
+    ) -> tuple[bool, str]:
+        """Mark this Pi online or offline. Same cookie JWT as punch."""
+        body = {
+            "hardware_id": hardware_id,
+            "device_id": device_id,
+            "device_name": device_name,
+            "device_key": device_key,
+            "wifi_ssid": "raspi",
+            "ip": ip,
+            "status": "offline" if status == "offline" else "online",
+        }
+
+        def once() -> tuple[int, dict]:
+            return self._request(
+                "POST",
+                "/hr/attendance/heartbeat",
+                body,
+                timeout_s=timeout_s,
+            )
+
+        http_status, payload = once()
+        if http_status == 401:
+            ok, message = self.sign_in(timeout_s=timeout_s)
+            if not ok:
+                return False, message or "Login failed"
+            http_status, payload = once()
+        if http_status == 200 and payload.get("success"):
+            return True, str(payload.get("message") or status)
+        return False, str(payload.get("message") or f"HTTP {http_status}")
+
 
 def _selfcheck() -> None:
     assert token_from_body({"success": True, "data": {"user": {}, "token": "jwt"}}) == "jwt"

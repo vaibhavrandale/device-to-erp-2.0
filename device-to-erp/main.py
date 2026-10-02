@@ -156,6 +156,21 @@ def main() -> int:
         leds=leds,
     )
 
+    def report_status(status: str) -> None:
+        ok, message = api.heartbeat(
+            hardware_id=hw,
+            device_id=storage.device_id,
+            device_name=storage.device_name,
+            device_key=storage.device_key,
+            ip=mqtt._local_ip(),
+            status=status,
+        )
+        if ok:
+            device_log.log(f"Device {status}")
+        else:
+            device_log.problem("Status", message or f"Could not mark {status}")
+
+    report_status("online")
     last_heartbeat = time.monotonic()
     last_mqtt_try = 0.0
     last_ui = 0.0
@@ -199,8 +214,10 @@ def main() -> int:
             if leds:
                 leds.update(mqtt_ok=api.logged_in, connecting=False)
 
-            if mqtt.connected() and now - last_heartbeat >= heartbeat_s:
-                mqtt.send_heartbeat()
+            if now - last_heartbeat >= heartbeat_s:
+                report_status("online")
+                if mqtt.connected():
+                    mqtt.send_heartbeat()
                 last_heartbeat = now
                 ip = mqtt._local_ip()
                 if oled and oled.ready:
@@ -335,6 +352,7 @@ def main() -> int:
 
             time.sleep(poll_s)
     finally:
+        report_status("offline")
         device_log.log("Stopped")
         device_log.sync(force=True)
         sensor.close()
