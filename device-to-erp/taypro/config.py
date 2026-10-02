@@ -52,6 +52,9 @@ DEFAULTS: dict[str, Any] = {
     "register_timeout_s": 15,
     "finger_debounce_s": 10,
     "scan_poll_s": 0.2,
+    "api_base": "https://console.taypro.in/api/v1",
+    "api_email": "hr@taypro.in",
+    "api_password": "123",
 }
 
 

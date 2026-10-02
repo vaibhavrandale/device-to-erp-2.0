@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""Taypro RasPi fingerprint attendance — MQTT punch + OLED for remote sites."""
+"""Taypro RasPi fingerprint attendance — REST punch + OLED for remote sites."""
 
 from __future__ import annotations
 
 import signal
 import sys
 import time
+from pathlib import Path
 
+from taypro.api_client import ConsoleApi
 from taypro.boot import boot_register
-from taypro.config import load_config, parse_u32
+from taypro.config import ROOT, load_config, parse_u32
 from enroll_now import pick_enroll_slot
 from taypro.enroll_remote import run_remote_enroll
-from taypro.fingerprint import R307, FingerprintError, finger_id_to_fp
+from taypro.fingerprint import R307, FingerprintError
 from taypro.leds import create_leds
 from taypro.logger import device_log
 from taypro.mqtt_client import AttendanceMqtt
@@ -27,7 +29,7 @@ def main() -> int:
     hw = hardware_id()
     print("=== Taypro Fingerprint Attendance (RasPi) ===")
     print(f"hardware_id={hw}")
-    print(f"MQTT {cfg['mqtt_host']}:{cfg['mqtt_port']}")
+    print(f"API {cfg['api_base']}")
     print(f"UART {cfg['fingerprint_port']} @ {cfg['fingerprint_baud']}")
 
     device_log.log(
@@ -64,41 +66,58 @@ def main() -> int:
     signal.signal(signal.SIGINT, _stop)
     signal.signal(signal.SIGTERM, _stop)
 
-    if oled and oled.ready:
-        oled.show_boot("..", "  ", "  ", "Connecting cloud...", device_id=storage.device_id)
+    api = ConsoleApi(
+        base=cfg["api_base"],
+        email=cfg["api_email"],
+        password=cfg["api_password"],
+        token_path=Path(cfg.get("api_token_path") or (ROOT / "data" / "authtoken")),
+    )
 
-    if not mqtt.connect(timeout_s=20):
-        device_log.problem("MQTT", f"Broker unreachable {cfg['mqtt_host']}:{cfg['mqtt_port']}")
+    if oled and oled.ready:
+        oled.show_boot("..", "  ", "  ", "Signing in...", device_id=storage.device_id)
+
+    signed_in, login_message = api.sign_in()
+    if not signed_in:
+        device_log.problem("Login", login_message)
         if leds:
             leds.trigger_fail()
             leds.update(mqtt_ok=False, connecting=False)
         if oled and oled.ready:
-            oled.show_error(402, "MQTT FAIL", "Cannot reach broker. Check WiFi/IP.", cfg["mqtt_host"])
+            oled.show_error(401, "LOGIN FAIL", login_message, cfg["api_base"])
         return 1
 
-    device_log.log("MQTT OK — Cloud server connected")
+    device_log.log(f"API login OK — {cfg['api_email']}")
     if leds:
         leds.update(mqtt_ok=True)
-    ip = mqtt._local_ip()
-    if oled and oled.ready:
-        oled.set_status_meta(ip=ip, extra=f"hw:{hw[-6:]}")
-        oled.show_boot("OK", "OK", "..", "Registering...", ip=ip, device_id=storage.device_id)
 
-    if not boot_register(mqtt, storage, timeout_s=float(cfg["register_timeout_s"])):
-        device_log.problem("Register", "Boot register incomplete — retrying later")
+    mqtt_up = mqtt.connect(timeout_s=20)
+    ip = mqtt._local_ip()
+    if not mqtt_up:
+        device_log.problem("MQTT", f"Broker unreachable {cfg['mqtt_host']}:{cfg['mqtt_port']}")
         if oled and oled.ready:
-            oled.show_boot("OK", "OK", "!!", "Register failed", ip=ip, device_id=storage.device_id)
+            oled.show_error(402, "MQTT FAIL", "Punch still works. Enroll needs MQTT.", cfg["mqtt_host"])
+            time.sleep(2.0)
     else:
-        device_log.log(f"Register OK — device id {storage.device_id}")
-        mqtt.send_heartbeat()
-        device_log.sync(force=True)
+        device_log.log("MQTT OK — enroll and heartbeat connected")
         if oled and oled.ready:
-            oled.show_register_result(
-                False,
-                storage.device_id,
-                f"Online {ip}",
-            )
-            time.sleep(1.2)
+            oled.set_status_meta(ip=ip, extra=f"hw:{hw[-6:]}")
+            oled.show_boot("OK", "OK", "..", "Registering...", ip=ip, device_id=storage.device_id)
+
+        if not boot_register(mqtt, storage, timeout_s=float(cfg["register_timeout_s"])):
+            device_log.problem("Register", "Boot register incomplete — retrying later")
+            if oled and oled.ready:
+                oled.show_boot("OK", "OK", "!!", "Register failed", ip=ip, device_id=storage.device_id)
+        else:
+            device_log.log(f"Register OK — device id {storage.device_id}")
+            mqtt.send_heartbeat()
+            device_log.sync(force=True)
+            if oled and oled.ready:
+                oled.show_register_result(
+                    False,
+                    storage.device_id,
+                    f"Online {ip}",
+                )
+                time.sleep(1.2)
 
     try:
         sensor = R307.open(
@@ -129,7 +148,7 @@ def main() -> int:
         return 1
 
     tap = TapHandler(
-        mqtt,
+        api,
         storage,
         debounce_s=float(cfg["finger_debounce_s"]),
         response_timeout_s=float(cfg["tap_response_timeout_s"]),
@@ -138,6 +157,7 @@ def main() -> int:
     )
 
     last_heartbeat = time.monotonic()
+    last_mqtt_try = 0.0
     last_ui = 0.0
     last_mem = 0.0
     ram_line, disk_line = memory_lines()
@@ -154,7 +174,7 @@ def main() -> int:
         oled.show_ready(
             storage,
             wifi_ok=True,
-            mqtt_ok=mqtt.connected(),
+            mqtt_ok=api.logged_in,
             templates=templates,
             ram_pct=ram_pct,
             disk_pct=disk_pct,
@@ -170,27 +190,16 @@ def main() -> int:
 
     try:
         while not stop:
-            if not mqtt.connected():
-                device_log.problem("MQTT", "Disconnected — reconnecting")
-                if leds:
-                    leds.update(mqtt_ok=False, connecting=True)
-                if oled and oled.ready:
-                    oled.show_boot(
-                        "OK",
-                        "!!",
-                        "OK" if storage.is_registered() else "!!",
-                        "Reconnecting MQTT...",
-                        ip=ip,
-                        device_id=storage.device_id,
-                    )
-                time.sleep(1)
-                continue
-
             now = time.monotonic()
-            if leds:
-                leds.update(mqtt_ok=True, connecting=False)
+            if not mqtt.connected() and now - last_mqtt_try >= 15:
+                last_mqtt_try = now
+                device_log.problem("MQTT", "Disconnected — reconnecting")
+                mqtt.connect(timeout_s=5)
 
-            if now - last_heartbeat >= heartbeat_s:
+            if leds:
+                leds.update(mqtt_ok=api.logged_in, connecting=False)
+
+            if mqtt.connected() and now - last_heartbeat >= heartbeat_s:
                 mqtt.send_heartbeat()
                 last_heartbeat = now
                 ip = mqtt._local_ip()
@@ -209,7 +218,7 @@ def main() -> int:
                 print(ram_line, "|", disk_line, flush=True)
                 last_mem = now
             if oled and oled.ready:
-                oled.poll_clear_temp(storage, mqtt_ok=mqtt.connected())
+                oled.poll_clear_temp(storage, mqtt_ok=api.logged_in)
                 if not oled.showing_tap and not tap.in_flight and now - last_ui >= 1.0:
                     try:
                         templates = sensor.template_count()
@@ -218,14 +227,14 @@ def main() -> int:
                     oled.show_ready(
                         storage,
                         wifi_ok=True,
-                        mqtt_ok=mqtt.connected(),
+                        mqtt_ok=api.logged_in,
                         templates=templates,
                         ram_pct=ram_pct,
                         disk_pct=disk_pct,
                     )
                     last_ui = now
 
-            if mqtt.enroll_pending and not tap.in_flight:
+            if mqtt.connected() and mqtt.enroll_pending and not tap.in_flight:
                 job = mqtt.enroll_pending
                 mqtt.enroll_pending = None
                 wait_lift = True
@@ -256,8 +265,7 @@ def main() -> int:
                 time.sleep(poll_s)
                 continue
 
-            # Location is optional for local DB insert — still poll the sensor.
-            if storage.is_registered() and not tap.in_flight:
+            if not tap.in_flight:
                 try:
                     img = sensor.get_image()
                     if wait_lift:
@@ -276,7 +284,7 @@ def main() -> int:
                                 lift_streak = 0
                                 tap.handle_template(page)
                                 device_log.sync(force=True)
-                            elif auto_enroll:
+                            elif auto_enroll and mqtt.connected():
                                 # No terminal on site, so an unrecognised finger
                                 # IS the capture request. enroll() wants two
                                 # placements, so a passer-by who touches once and

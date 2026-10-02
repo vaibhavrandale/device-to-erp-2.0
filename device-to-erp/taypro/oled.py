@@ -232,7 +232,7 @@ class OledDisplay:
         if disk_pct is not None:
             self._disk_pct = disk_pct
         with self._canvas() as draw:
-            draw.text((0, 0), f"W:{wifi}  M:{cloud}   {clock}", font=self._font, fill=1)
+            draw.text((0, 0), f"W:{wifi} API:{cloud} {clock}", font=self._font, fill=1)
             draw.line((0, 10, self.width - 1, 10), fill=1)
             self._meter(draw, 14, "RAM", self._ram_pct)
             self._meter(draw, 26, "DISK", self._disk_pct)

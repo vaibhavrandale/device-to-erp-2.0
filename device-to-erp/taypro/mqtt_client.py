@@ -64,6 +64,7 @@ class AttendanceMqtt:
         self.tap_card_id = ""
         self.enroll_pending = None
         self.enroll_ack = None
+        self._loop_started = False
 
     @property
     def down_topic(self) -> str:
@@ -160,12 +161,18 @@ class AttendanceMqtt:
             return
 
     def connect(self, timeout_s: float = 15.0) -> bool:
+        if self.connected():
+            return True
         try:
-            self.client.connect(self.host, self.port, keepalive=30)
+            if self._loop_started:
+                self.client.reconnect()
+            else:
+                self.client.connect(self.host, self.port, keepalive=30)
+                self.client.loop_start()
+                self._loop_started = True
         except (OSError, socket.error) as exc:
             print(f"[ERR-402] Broker unreachable: {exc}")
             return False
-        self.client.loop_start()
         if not self._connected.wait(timeout_s):
             print("[ERR-402] MQTT connect timeout")
             return False
