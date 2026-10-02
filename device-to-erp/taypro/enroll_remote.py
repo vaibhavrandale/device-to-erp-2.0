@@ -64,6 +64,10 @@ def run_remote_enroll(
         if oled and oled.ready:
             oled.show_enroll(finger, label, step)
 
+    label = employee_name or employee_id or "New finger"
+    # Screen changes before the library scan, so a slow sensor doesn't look idle.
+    show("clear")
+
     try:
         if location is None:
             location = next_template_id(sensor, capacity)
@@ -74,7 +78,6 @@ def run_remote_enroll(
 
         label = employee_name or employee_id or f"#{location}"
         print(f"UI enroll finger {finger}/2 → page {location} ({label})")
-        show("place1")
 
         sensor.enroll(location, timeout_s=timeout_s, on_step=show)
 
@@ -82,7 +85,7 @@ def run_remote_enroll(
         msg = f"Finger {finger}/2 enrolled as {fp_id}"
         print(msg)
 
-        mqtt.send_enroll_result(
+        notified = mqtt.send_enroll_result(
             ok=True,
             card_id=fp_id,
             location=location,
@@ -91,6 +94,8 @@ def run_remote_enroll(
             message=msg,
             finger=finger,
         )
+        if not notified:
+            print(f"Enroll saved on sensor as {fp_id}; server was not notified")
         return fp_id
     except Exception as exc:
         err = str(exc)

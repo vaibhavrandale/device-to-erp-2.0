@@ -14,7 +14,7 @@ sys.modules.setdefault("serial", types.ModuleType("serial"))
 
 from enroll_now import is_result_for, pick_enroll_slot, result_fp_id
 from taypro.config import DEFAULTS
-from taypro.fingerprint import decode_index_table
+from taypro.fingerprint import decode_index_table, finger_code_message
 
 
 def check_result_matching() -> None:
@@ -104,8 +104,16 @@ def check_screen_hold() -> None:
     print(f"[ok] ids stay on the OLED for {hold}s")
 
 
+def check_sensor_messages() -> None:
+    assert "same finger" in finger_code_message(0x0A)
+    assert finger_code_message(0x07) == "Press the finger flat and still"
+    assert finger_code_message(0x99).startswith("Sensor error")
+    print("[ok] enroll failures say what to do, not a raw sensor code")
+
+
 def main() -> int:
     check_result_matching()
+    check_sensor_messages()
     check_slot_pairing()
     check_free_page_choice()
     check_screen_hold()

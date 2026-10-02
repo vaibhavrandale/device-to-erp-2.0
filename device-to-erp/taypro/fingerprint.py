@@ -249,24 +249,33 @@ class R307:
         return False
 
     def capture_to_slot(self, slot: int, timeout_s: float = 30.0) -> None:
-        if not self.wait_finger(True, timeout_s):
-            raise FingerprintError("Timeout waiting for finger")
-        code = self.get_image()
-        if code != OK:
-            raise FingerprintError(f"get_image failed code=0x{code:02x}")
-        code = self.image2tz(slot)
-        if code != OK:
-            raise FingerprintError(f"image2tz({slot}) failed code=0x{code:02x}")
+        """Keep reading until one frame converts. A single messy image is not a failure."""
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            if self.get_image() != OK:
+                time.sleep(0.05)
+                continue
+            if self.image2tz(slot) == OK:
+                return
+            time.sleep(0.08)
+        raise FingerprintError("Press the finger flat and hold still")
 
     def enroll(self, location: int, timeout_s: float = 30.0, on_step=None) -> int:
         """Two-scan enroll into sensor flash at page id `location`. Returns location.
 
-        on_step(step: str) optional — called with place1|got1|remove|place2|got2|saving
+        The touch that opened enroll mode is not scan 1. The sensor must go clear,
+        then the same finger is placed twice. on_step gets
+        clear|place1|got1|remove|place2|got2|saving.
         """
         def step(name: str) -> None:
             print(f"enroll[{location}] {name}")
             if on_step:
                 on_step(name)
+
+        step("clear")
+        if not self.wait_finger(False, timeout_s):
+            raise FingerprintError("Lift your finger off the sensor")
+        time.sleep(0.35)
 
         step("place1")
         self.capture_to_slot(1, timeout_s)
@@ -275,8 +284,8 @@ class R307:
 
         step("remove")
         if not self.wait_finger(False, timeout_s):
-            raise FingerprintError("Timeout — lift finger off the sensor")
-        time.sleep(0.5)
+            raise FingerprintError("Lift your finger, then place it again")
+        time.sleep(0.45)
 
         step("place2")
         self.capture_to_slot(2, timeout_s)
@@ -286,10 +295,10 @@ class R307:
         step("saving")
         code = self.create_model()
         if code != OK:
-            raise FingerprintError(f"create_model failed code=0x{code:02x}")
+            raise FingerprintError(finger_code_message(code))
         code = self.store(location, slot=1)
         if code != OK:
-            raise FingerprintError(f"store({location}) failed code=0x{code:02x}")
+            raise FingerprintError(finger_code_message(code))
         return location
 
     def identify(self) -> Optional[int]:
@@ -303,6 +312,19 @@ class R307:
         if code != OK:
             return None
         return self.search(slot=1)
+
+
+def finger_code_message(code: int) -> str:
+    """Operator text for an R307 confirmation code."""
+    return {
+        0x02: "No finger on the sensor",
+        0x03: "Could not read the finger",
+        0x06: "Press the finger flat and still",
+        0x07: "Press the finger flat and still",
+        0x0A: "Scans don't match — use the same finger",
+        0x0B: "That slot is outside the sensor library",
+        0x1F: "Sensor storage failed",
+    }.get(int(code), f"Sensor error 0x{int(code):02x}")
 
 
 def finger_id_to_fp(template_id: int) -> str:

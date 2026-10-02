@@ -251,7 +251,7 @@ def main() -> int:
                     )
                     last_ui = now
 
-            if mqtt.connected() and mqtt.enroll_pending and not tap.in_flight:
+            if mqtt.enroll_pending and not tap.in_flight:
                 job = mqtt.enroll_pending
                 mqtt.enroll_pending = None
                 wait_lift = True
@@ -294,23 +294,35 @@ def main() -> int:
                         else:
                             lift_streak = 0
                     elif img == 0x00:
-                        if sensor.image2tz(1) == 0x00:
+                        tz = sensor.image2tz(1)
+                        if tz != 0x00:
+                            device_log.log(f"Finger seen — poor image 0x{tz:02x}")
+                            if leds:
+                                leds.trigger_fail()
+                            if oled and oled.ready:
+                                oled.show_error(
+                                    705,
+                                    "PRESS FIRMLY",
+                                    "Cover the sensor and hold still",
+                                )
+                            wait_lift = True
+                            lift_streak = 0
+                        else:
                             page = sensor.search(slot=1, start=0, count=capacity)
                             if page is not None:
                                 wait_lift = True
                                 lift_streak = 0
                                 tap.handle_template(page)
                                 device_log.sync(force=True)
-                            elif auto_enroll and mqtt.connected():
-                                # No terminal on site, so an unrecognised finger
-                                # IS the capture request. enroll() wants two
-                                # placements, so a passer-by who touches once and
-                                # walks off times out without eating a slot.
+                            elif auto_enroll:
+                                # Unknown finger opens enroll mode. The touch
+                                # already on the glass is not scan 1 — enroll()
+                                # waits for a lift, then two deliberate presses.
                                 slot, enrolled_ids = pick_enroll_slot(
                                     enrolled_ids, now - last_enroll, pair_window_s
                                 )
                                 last_enroll = now
-                                device_log.log(f"Unknown finger — capture slot {slot}/2")
+                                device_log.log(f"Unknown finger — enroll slot {slot}/2")
                                 fp_id = run_remote_enroll(
                                     sensor,
                                     mqtt,
@@ -326,11 +338,8 @@ def main() -> int:
                                         oled.show_enroll_ids(
                                             enrolled_ids[1], enrolled_ids[2]
                                         )
-                                else:
-                                    if leds:
-                                        leds.trigger_fail()
-                                    if oled and oled.ready:
-                                        oled.show_no_match()
+                                elif leds:
+                                    leds.trigger_fail()
                                 wait_lift = True
                                 lift_streak = 0
                                 device_log.sync(force=True)

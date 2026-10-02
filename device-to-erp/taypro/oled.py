@@ -330,12 +330,14 @@ class OledDisplay:
         name_line = self._truncate(name or "", 21)
         step_key = (step or "").lower()
 
-        if step_key in ("place1", "place"):
-            big, hint = "PLACE FINGER", "Scan 1 of 2 — press down"
+        if step_key == "clear":
+            big, hint = "LIFT FINGER", "New finger — lift off"
+        elif step_key in ("place1", "place"):
+            big, hint = "PLACE FINGER", "Hold still — scan 1/2"
         elif step_key == "got1":
-            big, hint = "GOT IT!", "Hold still..."
+            big, hint = "GOT IT", "Now lift off"
         elif step_key in ("remove", "lift"):
-            big, hint = "REMOVE FINGER", "Lift off the sensor"
+            big, hint = "LIFT FINGER", "Then place it again"
         elif step_key == "place2":
             big, hint = "PLACE AGAIN", "Same finger — scan 2/2"
         elif step_key == "got2":
